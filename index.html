@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timed Assessment</title>
+    <style>
+        /* Folded Paper & Texture Background */
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #e5e5f7;
+            background-image: repeating-radial-gradient(circle at 0 0, transparent 0, #e5e5f7 10px), repeating-linear-gradient(#ececf855, #ececf8);
+            overflow: hidden;
+        }
+
+        #timer-bar {
+            background: #1e293b;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            z-index: 100;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: background 0.3s ease;
+            display: none;
+            /* Hidden until assessment starts */
+        }
+
+        #timer-bar.warning {
+            background: #ef4444;
+        }
+
+        /* The "Paper" Container */
+        #form-container {
+            flex-grow: 1;
+            width: 100%;
+            max-width: 850px;
+            margin: 20px auto;
+            background: #ffffff;
+            border-radius: 4px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+            overflow-y: auto;
+            display: none;
+            /* Hidden until assessment starts */
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* Status Screens (Waiting / Time's Up) */
+        .status-screen {
+            display: flex;
+            text-align: center;
+            padding: 50px;
+            flex-grow: 1;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            margin: 20px auto;
+            max-width: 600px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .status-screen h1 {
+            color: #0f172a;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .status-screen p {
+            font-size: 1.2rem;
+            color: #475569;
+        }
+
+        .error-text {
+            color: #ef4444;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="timer-bar">Time Remaining: <span id="time">--:--</span></div>
+
+    <div id="form-container">
+        <iframe id="google-form" src="" title="Assessment Form"></iframe>
+    </div>
+
+    <div id="status-display" class="status-screen">
+        <h1 id="status-title">Loading...</h1>
+        <p id="status-message">Checking assessment availability.</p>
+    </div>
+
+    <script>
+        // ==========================================
+        // -- Form URL(dont upload the shorten version)
+        // ==========================================
+        const CONFIG = {
+            formUrl: "https://docs.google.com/forms/d/e/1FAIpQLScp4Ns4E-3u7SGKQI7SDcM544EI6mufcVeb4uM4Qk8fRpE3_g/viewform",
+
+            // quize duration
+            timeLimitMinutes: 30,
+
+            //Format: YYYY-MM-DDTHH:MM:SS
+
+            openDate: "2026-06-15T10:00:00",
+            closeDate: "2026-06-15T22:00:00"
+        };
+
+        // ==========================================
+        // --- LOGIC INTERFACE ---
+        // ==========================================
+        const UI = {
+            form: document.getElementById('form-container'),
+            timer: document.getElementById('timer-bar'),
+            timeDisplay: document.getElementById('time'),
+            status: document.getElementById('status-display'),
+            statusTitle: document.getElementById('status-title'),
+            statusMessage: document.getElementById('status-message'),
+            iframe: document.getElementById('google-form')
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            evaluateAccess();
+        });
+
+        function evaluateAccess() {
+            const now = new Date();
+            const openTime = new Date(CONFIG.openDate);
+            const closeTime = new Date(CONFIG.closeDate);
+
+            if (now < openTime) {
+                // Scenario 1: Too early
+                showStatus(
+                    "Not Yet Open",
+                    `The quiz will open on <strong>${openTime.toLocaleString()}</strong>.`
+                );
+            } else if (now >= closeTime) {
+                // Scenario 2: Too late
+                showStatus(
+                    "Quiz Closed",
+                    "The deadline for the quiz has passed."
+                );
+            } else {
+                // Scenario 3: Window is open. Calculate available time.
+                const msUntilClose = closeTime - now;
+                const secondsUntilClose = Math.floor(msUntilClose / 1000);
+                const standardDurationSeconds = CONFIG.timeLimitMinutes * 60;
+
+                // If they start late, they only get the remaining time until the closing deadline
+                const actualDuration = Math.min(standardDurationSeconds, secondsUntilClose);
+
+                startAssessment(actualDuration);
+            }
+        }
+
+        function startAssessment(durationInSeconds) {
+            // Hide status, show form and timer
+            UI.status.style.display = 'none';
+            UI.form.style.display = 'block';
+            UI.timer.style.display = 'block';
+
+            // Inject URL safely
+            UI.iframe.src = CONFIG.formUrl + "?embedded=true";
+
+            runClock(durationInSeconds);
+        }
+
+        function runClock(durationInSeconds) {
+            let timer = durationInSeconds;
+
+            const interval = setInterval(() => {
+                let minutes = parseInt(timer / 60, 10);
+                let seconds = parseInt(timer % 60, 10);
+
+                minutes = minutes < 10 ? "0" + minutes : minutes;
+                seconds = seconds < 10 ? "0" + seconds : seconds;
+
+                UI.timeDisplay.textContent = minutes + ":" + seconds;
+
+                if (timer <= 300) {
+                    UI.timer.classList.add('warning');
+                }
+
+                if (--timer < 0) {
+                    clearInterval(interval);
+                    showStatus(
+                        "Time's Up!",
+                        "The assessment window has closed. The form has been locked."
+                    );
+                    UI.form.style.display = 'none';
+                    UI.timer.style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        function showStatus(title, messageHtml) {
+            UI.statusTitle.textContent = title;
+            UI.statusMessage.innerHTML = messageHtml;
+            UI.status.style.display = 'flex';
+        }
+    </script>
+</body>
+
+</html>
