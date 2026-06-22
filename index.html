@@ -13,8 +13,11 @@
         .status-screen { display: flex; text-align: center; padding: 50px; flex-grow: 1; flex-direction: column; justify-content: center; align-items: center; background-color: rgba(255,255,255,0.9); margin: 20px auto; max-width: 600px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .status-screen h1 { color: #0f172a; font-size: 2.5rem; margin-bottom: 10px; }
         .gateway-input { padding: 12px; font-size: 16px; width: 80%; max-width: 300px; margin: 20px 0; border: 2px solid #cbd5e1; border-radius: 6px; }
-        .gateway-btn { padding: 12px 24px; font-size: 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .gateway-btn { padding: 12px 24px; font-size: 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s, opacity 0.2s; }
         .gateway-btn:hover { background: #1d4ed8; }
+        .gateway-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .gateway-error { color: #dc2626; font-weight: 600; margin-top: 14px; min-height: 1.2em; }
+        .gateway-note { color: #64748b; font-size: 0.85rem; margin-top: 6px; }
     </style>
 </head>
 <body>
@@ -31,7 +34,8 @@
             <p>Enter the email address you will use for the quiz.</p>
             <input type="email" id="user-email" class="gateway-input" placeholder="participant@example.com" required>
             <br>
-            <button class="gateway-btn" onclick="startGateway()">Begin Assessment</button>
+            <button class="gateway-btn" id="begin-btn" onclick="startGateway()">Begin Assessment</button>
+            <div class="gateway-error" id="gateway-error"></div>
         </div>
         <p id="status-message">Checking assessment availability.</p>
     </div>
@@ -39,11 +43,15 @@
     <script>
         const CONFIG = {
             formUrl: "https://docs.google.com/forms/d/e/1FAIpQLScp4Ns4E-3u7SGKQI7SDcM544EI6mufcVeb4uM4Qk8fRpE3_g/viewform?usp=header",
-            apiUrl: "https://script.google.com/macros/s/AKfycbyZ7uiQWinlffAVqHVDPb6ojZv5jUmYBfQMdPtBytOZd3-PD7tiDNR5PZxSNnYsvV2k/exec", // Paste the Apps Script URL here!
-            
+            apiUrl: "https://script.google.com/macros/s/AKfycbynUNB9r4oMz8cuMUPNma34LQJkd6Zr2UrQOzmXC-nIxUeoHwpHm2WsRXi8GUOMz7rd/exec", // Paste the Apps Script URL here!
+
             timeLimitMinutes: 30,
             openDate: "2026-06-15T10:00:00",
-            closeDate: "2026-06-23T22:00:00"
+            closeDate: "2026-06-23T22:00:00",
+
+            // How many times to retry logging the start time before giving up
+            LOG_START_MAX_RETRIES: 3,
+            LOG_START_RETRY_DELAY_MS: 1000
         };
 
         let calculatedDuration = 0;
@@ -62,29 +70,70 @@
             } else {
                 // Window is open! Show the Gateway UI instead of the form directly.
                 calculatedDuration = Math.min(CONFIG.timeLimitMinutes * 60, Math.floor((closeTime - now) / 1000));
-                
+
                 document.getElementById('status-title').textContent = "Ready to Start";
                 document.getElementById('status-message').style.display = 'none';
                 document.getElementById('gateway-ui').style.display = 'block';
             }
         });
 
+        // Attempts to log the start time, retrying on failure.
+        // Resolves true if the server confirmed success, false if all retries failed.
+        async function logStartWithRetry(email) {
+            for (let attempt = 1; attempt <= CONFIG.LOG_START_MAX_RETRIES; attempt++) {
+                try {
+                    const response = await fetch(
+                        CONFIG.apiUrl + "?action=logStart&email=" + encodeURIComponent(email)
+                    );
+                    if (!response.ok) throw new Error("HTTP " + response.status);
+
+                    const data = await response.json();
+                    if (data.status === "success") {
+                        return true;
+                    }
+                    throw new Error(data.message || "Unknown server response");
+                } catch (err) {
+                    console.log(`logStart attempt ${attempt} failed:`, err);
+                    if (attempt < CONFIG.LOG_START_MAX_RETRIES) {
+                        await new Promise(res => setTimeout(res, CONFIG.LOG_START_RETRY_DELAY_MS));
+                    }
+                }
+            }
+            return false;
+        }
+
         // This runs when they click "Begin Assessment"
-        function startGateway() {
+        async function startGateway() {
             const email = document.getElementById('user-email').value.trim();
+            const errorEl = document.getElementById('gateway-error');
+            const beginBtn = document.getElementById('begin-btn');
+            errorEl.textContent = '';
+
             if (!email || !email.includes('@')) {
-                alert("Please enter a valid email address.");
+                errorEl.textContent = "Please enter a valid email address.";
                 return;
             }
 
-            // 1. Hide the Gateway UI immediately
+            // 1. Lock the button and show progress while we confirm the start time is logged.
+            //    We deliberately do NOT show the form yet - if logging fails, the timer
+            //    would never get recorded and the participant would show as "N/A" on
+            //    the leaderboard with no way to know why.
+            beginBtn.disabled = true;
+            beginBtn.textContent = "Starting…";
+
+            const logged = await logStartWithRetry(email);
+
+            if (!logged) {
+                beginBtn.disabled = false;
+                beginBtn.textContent = "Begin Assessment";
+                errorEl.textContent = "Couldn't start the timer (connection issue). Please check your internet connection and try again.";
+                return;
+            }
+
+            // 2. Start time confirmed logged server-side - now reveal the form.
             document.getElementById('status-display').style.display = 'none';
             document.getElementById('form-container').style.display = 'block';
             document.getElementById('timer-bar').style.display = 'block';
-
-            // 2. Secretly ping Apps Script to record the start time
-            fetch(CONFIG.apiUrl + "?action=logStart&email=" + encodeURIComponent(email))
-                .catch(err => console.log("Silent error logging start:", err));
 
             // 3. Load the Google Form, automatically pre-filling the email address!
             document.getElementById('google-form').src = CONFIG.formUrl + "?embedded=true&emailAddress=" + encodeURIComponent(email);
