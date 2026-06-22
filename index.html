@@ -103,44 +103,49 @@
         }
 
         // This runs when they click "Begin Assessment"
-        async function startGateway() {
-            const email = document.getElementById('user-email').value.trim();
-            const errorEl = document.getElementById('gateway-error');
-            const beginBtn = document.getElementById('begin-btn');
-            errorEl.textContent = '';
+       async function startGateway() {
+    const email = document.getElementById('user-email').value.trim();
+    const errorEl = document.getElementById('gateway-error');
+    const beginBtn = document.getElementById('begin-btn');
 
-            if (!email || !email.includes('@')) {
-                errorEl.textContent = "Please enter a valid email address.";
-                return;
-            }
+    errorEl.textContent = '';
 
-            // 1. Lock the button and show progress while we confirm the start time is logged.
-            //    We deliberately do NOT show the form yet - if logging fails, the timer
-            //    would never get recorded and the participant would show as "N/A" on
-            //    the leaderboard with no way to know why.
-            beginBtn.disabled = true;
-            beginBtn.textContent = "Starting…";
+    if (!email || !email.includes('@')) {
+        errorEl.textContent = "Please enter a valid email address.";
+        return;
+    }
 
-            const logged = await logStartWithRetry(email);
+    // Disable button while starting
+    beginBtn.disabled = true;
+    beginBtn.textContent = "Starting…";
 
-            if (!logged) {
-                beginBtn.disabled = false;
-                beginBtn.textContent = "Begin Assessment";
-                errorEl.textContent = "Couldn't start the timer (connection issue). Please check your internet connection and try again.";
-                return;
-            }
+    const logged = await logStartWithRetry(email);
 
-            // 2. Start time confirmed logged server-side - now reveal the form.
-            document.getElementById('status-display').style.display = 'none';
-            document.getElementById('form-container').style.display = 'block';
-            document.getElementById('timer-bar').style.display = 'block';
+    if (!logged) {
+        beginBtn.disabled = false;
+        beginBtn.textContent = "Begin Assessment";
+        errorEl.textContent =
+            "Couldn't start the timer (connection issue). Please check your internet connection and try again.";
+        return;
+    }
 
-            // 3. Load the Google Form, automatically pre-filling the email address!
-            document.getElementById('google-form').src = CONFIG.formUrl + "?embedded=true&emailAddress=" + encodeURIComponent(email);
+    // Show form and timer
+    document.getElementById('status-display').style.display = 'none';
+    document.getElementById('form-container').style.display = 'block';
+    document.getElementById('timer-bar').style.display = 'block';
 
-            // 4. Start the visual countdown
-            runClock(calculatedDuration);
-        }
+    // FIXED: Handles URLs that already contain ?usp=header
+    const separator = CONFIG.formUrl.includes('?') ? '&' : '?';
+
+    document.getElementById('google-form').src =
+        CONFIG.formUrl +
+        separator +
+        'embedded=true&emailAddress=' +
+        encodeURIComponent(email);
+
+    // Start countdown
+    runClock(calculatedDuration);
+}
 
         function runClock(durationInSeconds) {
             let timer = durationInSeconds;
