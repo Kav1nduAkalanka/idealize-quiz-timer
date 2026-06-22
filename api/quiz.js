@@ -13,7 +13,7 @@ export default async function handler(req, res) {
         const query = new URLSearchParams(req.query).toString();
 
         const response = await fetch(
-            "https://script.google.com/macros/s/AKfycbzzRI3dFuRGctemStBDm2-Hj2kVt-T-m9bvo5kQ-rV0OCdQbrgAivKvZZPRG8DTrFf81Q/exec?" +
+            "https://script.google.com/macros/s/AKfycbyRj2957oI8RlwsKdLh8rcBM1qpwqz8hT8FZtwzsmM6SuyV7us1HUCHSpwghzGwGIvwOA/exec?" +
             query
         );
 
